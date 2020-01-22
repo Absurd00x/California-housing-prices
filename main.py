@@ -6,6 +6,7 @@ import os
 import pandas as pd
 import tarfile
 
+from copy import deepcopy
 from pandas.plotting import scatter_matrix
 from six.moves import urllib
 from sklearn.base import BaseEstimator, TransformerMixin
@@ -13,6 +14,7 @@ from sklearn.ensemble import RandomForestRegressor
 from sklearn.impute import SimpleImputer
 from sklearn.linear_model import LinearRegression
 from sklearn.metrics import mean_squared_error
+from sklearn.model_selection import cross_val_predict
 from sklearn.model_selection import cross_val_score
 from sklearn.model_selection import GridSearchCV
 from sklearn.neural_network import MLPRegressor
@@ -167,7 +169,7 @@ class DataFrameCategorySelector(BaseEstimator, TransformerMixin):
         return self
 
     def transform(self, X, y=None):
-        return X[X == self.category]
+        return np.where(X[self.column] == self.category, 1.0, 0.0).reshape((-1, 1))
 
 
 features = list(housing)
@@ -217,7 +219,7 @@ full_pipeline = FeatureUnion(transformer_list=[
     ("scale pipeline", scale_pipeline),
     ("longitude pipeline", longitude_biniraze_pipeline),
     ("latitude pipeline", latitude_biniraze_pipeline),
-    ("housing median age pipeline", latitude_biniraze_pipeline)
+    ("housing median age pipeline", housing_median_age_biniraze_pipeline)
 ])
 
 labels_pipeline = Pipeline([
@@ -239,8 +241,12 @@ def check_model(model):
     print("learning...")
     model.fit(features_prepared, labels_prepared)
     print("validating...")
-    scores = cross_val_score(model, features_prepared, labels_prepared, scoring="neg_mean_squared_error", cv=10)
-    display_scores(scores)
+    predictions = cross_val_predict(model, features_prepared, labels_prepared, cv=10)
+    scaled_back_predictions = MinMaxScaler(feature_range=(14999.0, 500000.0)).fit_transform(predictions.reshape(-1, 1))
+    examples_number = labels_prepared.shape[0]
+    rmse_on_splits = [np.sqrt(np.sum(np.square(scaled_back_predictions[i * examples_number // 10: (i + 1) * examples_number // 10] -
+                      labels_cleared.values[i * examples_number // 10: (i + 1) * examples_number // 10]))) for i in range(10)]
+    display_scores(np.array(rmse_on_splits))
 
 
 check_model(MLPRegressor(hidden_layer_sizes=[50, 20], max_iter=2000, random_state=42))
