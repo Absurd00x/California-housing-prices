@@ -15,6 +15,8 @@ from sklearn.linear_model import LinearRegression
 from sklearn.metrics import mean_squared_error
 from sklearn.model_selection import cross_val_score
 from sklearn.model_selection import GridSearchCV
+from sklearn.neural_network import MLPRegressor
+
 from sklearn.model_selection import StratifiedShuffleSplit
 from sklearn.pipeline import FeatureUnion
 from sklearn.pipeline import Pipeline
@@ -86,6 +88,9 @@ for train_index, test_index in split_object.split(housing, housing["income_cat"]
     strat_test_set = housing.loc[test_index]
 
 housing = strat_train_set.drop("median_house_value", axis=1)
+cleared_dataset = strat_train_set[strat_train_set["median_house_value"] != 500001.0]
+housing_cleared = cleared_dataset.drop("median_house_value", axis=1)
+labels_cleared = cleared_dataset["median_house_value"].copy()
 housing_labels = strat_train_set["median_house_value"].copy()
 
 
@@ -96,10 +101,16 @@ def draw_heatmap(data=housing):
     plt.show()
 
 
+def display_scores(scores):
+    print("Scores:", scores)
+    print("Mean:", scores.mean())
+    print("Standard deviation:", scores.std())
+
+
 rooms_ix = 3
 bedrooms_ix = 4
-population_ix = 5
-household_ix = 6
+population_ix = 2
+household_ix = 1
 
 
 class CombinedAttributesAdder(BaseEstimator, TransformerMixin):
@@ -142,15 +153,26 @@ class DataFrameSelector(BaseEstimator, TransformerMixin):
     def fit(self, X, y=None):
         return self
 
-    def transform(self, X):
+    def transform(self, X, y=None):
         return X[self.attribute_names].values
 
 
-housing["rooms_per_household"] = housing["total_rooms"] / housing["households"]
-housing["bedrooms_per_room"] = housing["total_bedrooms"]/housing["total_rooms"]
+class DataFrameCategorySelector(BaseEstimator, TransformerMixin):
 
-lognormal_features = ["median_income", "households", "population", "bedrooms_per_room",
-                      "rooms_per_household", "total_rooms", "total_bedrooms"]
+    def __init__(self, column, category):
+        self.column = column
+        self.category = category
+
+    def fit(self, X, y=None):
+        return self
+
+    def transform(self, X, y=None):
+        return X[X == self.category]
+
+
+features = list(housing)
+
+lognormal_features = ["median_income", "households", "population", "total_rooms", "total_bedrooms"]
 
 caucasus_mountains_features = ["longitude", "latitude", "housing_median_age"]
 
@@ -180,13 +202,14 @@ housing_median_age_biniraze_pipeline = Pipeline([
 
 scale_pipeline = Pipeline([
     ("selector", DataFrameSelector(lognormal_features)),
-    ("attrib adder", CombinedAttributesAdder()),
+    ("imputer", SimpleImputer(strategy="median")),
     ("log scaler", LogScaler()),
-    ("std scaler", preprocessing.StandardScaler())
+    ("std scaler", preprocessing.StandardScaler()),
+    ("attrib adder", CombinedAttributesAdder())
 ])
 
 cat_pipeline = Pipeline([
-    ("selector", DataFrameSelector("INLAND"))
+    ("category_selector", DataFrameCategorySelector("ocean_proximity", "INLAND"))
 ])
 
 full_pipeline = FeatureUnion(transformer_list=[
@@ -197,46 +220,31 @@ full_pipeline = FeatureUnion(transformer_list=[
     ("housing median age pipeline", latitude_biniraze_pipeline)
 ])
 
-housing_prepared = full_pipeline.fit_transform(housing)
+labels_pipeline = Pipeline([
+    ("scaler", preprocessing.MinMaxScaler())
+])
 
-print(housing.shape)
-# 48425.078937235696 - prev score
-
-# lin_reg = LinearRegression()
-# lin_reg.fit(housing_prepared, housing_labels)
-#
-# housing_predictions = lin_reg.predict(housing_prepared)
-# lin_mse = mean_squared_error(housing_labels, housing_predictions)
-# lin_rmse = np.sqrt(lin_mse)
-# print("Linear regression rmse:", lin_rmse)
-#
-# tree_reg = DecisionTreeRegressor()
-# tree_reg.fit(housing_prepared, housing_labels)
-# housing_predictions = tree_reg.predict(housing_prepared)
-# tree_mse = mean_squared_error(housing_labels, housing_predictions)
-# tree_rmse = np.sqrt(tree_mse)
-# print("Decision tree regression rmse:", tree_rmse)
-
-# scores = cross_val_score(tree_reg, housing_prepared, housing_labels, scoring="neg_mean_squared_error", cv=10)
-# tree_rmse_scores = np.sqrt(-scores)
+features_prepared = full_pipeline.fit_transform(housing_cleared)
+labels_prepared = labels_pipeline.fit_transform(labels_cleared.values.reshape(-1, 1)).ravel()
+labels_range = {"min": labels_cleared.min(), "max": labels_cleared.max()}
 
 
-def display_scores(scores):
-    print("Scores:", scores)
-    print("Mean:", scores.mean())
-    print("Standard deviation:", scores.std())
+# prevsc = 48425.078937235696
+# linreg = 69416.50437334094
+# detree = 78631.53366462552
+# rnfore = 56626.4205890663
 
 
-# display_scores(tree_rmse_scores)
-# forest_reg = RandomForestRegressor()
-# print("learning...")
-# forest_reg.fit(housing_prepared, housing_labels)
-# print("validating...")
-# scores = cross_val_score(forest_reg, housing_prepared, housing_labels, scoring="neg_mean_squared_error", cv=10)
-# forest_rmse_scores = np.sqrt(-scores)
-#
-# display_scores(forest_rmse_scores)
-#
+def check_model(model):
+    print("learning...")
+    model.fit(features_prepared, labels_prepared)
+    print("validating...")
+    scores = cross_val_score(model, features_prepared, labels_prepared, scoring="neg_mean_squared_error", cv=10)
+    display_scores(scores)
+
+
+check_model(MLPRegressor(hidden_layer_sizes=[50, 20], max_iter=2000, random_state=42))
+
 # joblib.dump(forest_reg, "forest_regressor.pkl")
 
 # param_grid = [
