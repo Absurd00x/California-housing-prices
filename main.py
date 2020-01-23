@@ -28,6 +28,7 @@ from sklearn.preprocessing import LabelEncoder
 from sklearn.preprocessing import OneHotEncoder
 from sklearn.preprocessing import StandardScaler
 from sklearn.tree import DecisionTreeRegressor
+from sklearn.svm import SVR
 
 
 pd.set_option('display.max_rows', 20)
@@ -175,7 +176,7 @@ class DataFrameCategorySelector(BaseEstimator, TransformerMixin):
 features = list(housing)
 
 lognormal_features = ["median_income", "households", "population", "total_rooms", "total_bedrooms"]
-
+features_to_bin = ["longitude", "latitude", "housing_median_age"]
 caucasus_mountains_features = ["longitude", "latitude", "housing_median_age"]
 
 # Actually the important ones are "INLAND"
@@ -206,7 +207,7 @@ scale_pipeline = Pipeline([
     ("selector", DataFrameSelector(lognormal_features)),
     ("imputer", SimpleImputer(strategy="median")),
     ("log scaler", LogScaler()),
-    ("std scaler", preprocessing.StandardScaler()),
+    ("std scaler", StandardScaler()),
     ("attrib adder", CombinedAttributesAdder())
 ])
 
@@ -227,31 +228,30 @@ labels_pipeline = Pipeline([
 ])
 
 features_prepared = full_pipeline.fit_transform(housing_cleared)
-labels_prepared = labels_pipeline.fit_transform(labels_cleared.values.reshape(-1, 1)).ravel()
+# labels_prepared = labels_pipeline.fit_transform(labels_cleared.values.reshape(-1, 1)).ravel()
+labels_prepared = labels_cleared
 labels_range = {"min": labels_cleared.min(), "max": labels_cleared.max()}
 
 
 # prevsc = 48425.078937235696
 # linreg = 69416.50437334094
 # detree = 78631.53366462552
-# rnfore = 56626.4205890663
+# rnfore = 48124.497659569904 no scaling
 
 
 def check_model(model):
-    print("learning...")
-    model.fit(features_prepared, labels_prepared)
+    # print("learning...")
+    # model.fit(features_prepared, labels_prepared)
     print("validating...")
-    predictions = cross_val_predict(model, features_prepared, labels_prepared, cv=10)
-    scaled_back_predictions = MinMaxScaler(feature_range=(14999.0, 500000.0)).fit_transform(predictions.reshape(-1, 1))
-    examples_number = labels_prepared.shape[0]
-    rmse_on_splits = [np.sqrt(np.sum(np.square(scaled_back_predictions[i * examples_number // 10: (i + 1) * examples_number // 10] -
-                      labels_cleared.values[i * examples_number // 10: (i + 1) * examples_number // 10]))) for i in range(10)]
-    display_scores(np.array(rmse_on_splits))
+    rmse = np.sqrt(-cross_val_score(model, features_prepared, labels_cleared, cv=10, scoring="neg_mean_squared_error",
+                                    verbose=True))
+    display_scores(rmse)
 
 
-check_model(MLPRegressor(hidden_layer_sizes=[50, 20], max_iter=2000, random_state=42))
+fr = RandomForestRegressor(max_features=12, n_estimators=60)
+check_model(SVR(kernel="rbf"))
 
-# joblib.dump(forest_reg, "forest_regressor.pkl")
+# joblib.dump(fr, "forest_regressor.pkl")
 
 # param_grid = [
 #     {"n_estimators": [3, 10, 30], "max_features": [2, 4, 6, 8]},
